@@ -27,6 +27,9 @@ class YtDlpSource:
             "noplaylist": True,
             "quiet": True,
             "noprogress": True,
+            # Instagram sometimes answers the video-info request slowly; the
+            # default timeout failed on a real reel where 60 s succeeded.
+            "socket_timeout": 60,
             "no_warnings": True,
         }
         if self._cookies_file:
