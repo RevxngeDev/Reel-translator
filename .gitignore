@@ -1,0 +1,17 @@
+# Local-only paths (never committed)
+docs/ai-context/
+CLAUDE.md
+AGENTS.md
+.claude/
+samples/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
