@@ -23,5 +23,5 @@ def load() -> Config:
     return Config(
         token=token,
         whitelist=_parse_ids(os.environ.get("TELEGRAM_WHITELIST", "")),
-        db_path=Path(os.environ.get("BOT_DB_PATH", "data/bot.sqlite3")),
+        db_path=Path(os.environ.get("BOT_DB_PATH") or "data/bot.sqlite3"),
     )
