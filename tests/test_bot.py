@@ -126,3 +126,10 @@ def test_ui_lang_fallback():
     assert i18n.ui_lang("ru") == "ru"
     assert i18n.ui_lang("de") == "en"
     assert i18n.ui_lang(None) == "en"
+
+
+def test_every_message_formats_with_its_handler_arguments():
+    args = {"language": "English", "user_id": 1, "position": 1, "source": "es", "target": "en"}
+    for key in i18n.MESSAGES:
+        for ui in i18n.UI_LANGS:
+            assert "{" not in i18n.t(key, ui, **args), (key, ui)

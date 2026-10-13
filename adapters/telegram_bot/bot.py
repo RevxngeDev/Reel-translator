@@ -88,7 +88,7 @@ async def lang_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if code not in SUPPORTED_LANGS:
         return
     state.db.set_target_lang(user.telegram_id, code)
-    await query.edit_message_text(i18n.t("lang_set", user.ui_lang, lang=i18n.LANG_LABELS[code]))
+    await query.edit_message_text(i18n.t("lang_set", user.ui_lang, language=i18n.LANG_LABELS[code]))
 
 
 async def link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -106,6 +106,17 @@ async def link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     job = state.db.create_job(user.telegram_id, match.group(0), user.target_lang)
     await state.queue.put(job.id)
     await update.effective_message.reply_text(i18n.t("queued", user.ui_lang, position=state.queue.qsize()))
+
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Unexpected handler errors are logged and the user still gets a reply."""
+    log.error("handler error", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_chat:
+        ui = i18n.ui_lang(update.effective_user.language_code if update.effective_user else None)
+        try:
+            await context.bot.send_message(update.effective_chat.id, i18n.t("err_internal", ui))
+        except Exception:
+            log.exception("could not report handler error to the user")
 
 
 async def _worker(app: Application) -> None:
@@ -160,4 +171,5 @@ def build_application(config: Config) -> Application:
     app.add_handler(CommandHandler("idioma", idioma, filters=private))
     app.add_handler(CallbackQueryHandler(lang_chosen, pattern=r"^lang:"))
     app.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, link))
+    app.add_error_handler(on_error)
     return app

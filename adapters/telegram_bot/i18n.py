@@ -35,9 +35,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "На какой язык переводить видео?",
     },
     "lang_set": {
-        "es": "Listo: traduciré a {lang}. Ahora envíame el link de un reel.",
-        "en": "Done: I'll translate into {lang}. Now send me a reel link.",
-        "ru": "Готово: буду переводить на {lang}. Теперь отправь ссылку на рилс.",
+        "es": "Listo: traduciré a {language}. Ahora envíame el link de un reel.",
+        "en": "Done: I'll translate into {language}. Now send me a reel link.",
+        "ru": "Готово: буду переводить на {language}. Теперь отправь ссылку на рилс.",
     },
     "need_lang": {
         "es": "Primero elige el idioma de traducción con /idioma.",
@@ -112,8 +112,8 @@ def ui_lang(telegram_language_code: str | None) -> str:
     return code if code in UI_LANGS else "en"
 
 
-def t(key: str, lang: str, **kwargs: object) -> str:
-    return MESSAGES[key][lang].format(**kwargs)
+def t(key: str, ui: str, /, **kwargs: object) -> str:
+    return MESSAGES[key][ui].format(**kwargs)
 
 
 class OutputTooLargeError(PipelineError):
