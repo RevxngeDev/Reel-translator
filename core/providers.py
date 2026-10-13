@@ -8,6 +8,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import groq
+import httpx
+
 from core.source import YtDlpSource
 from core.stt import GroqWhisper
 from core.translate import FallbackTranslator, GroqLlmTranslator
@@ -15,6 +18,15 @@ from core.translate import FallbackTranslator, GroqLlmTranslator
 # D-012
 PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-20b"
+
+# The SDK default (5 s connect, 2 retries) failed on the dev network, whose TLS
+# handshakes are sometimes slow (D-018).
+GROQ_TIMEOUT = httpx.Timeout(120.0, connect=20.0)
+GROQ_MAX_RETRIES = 3
+
+
+def groq_client() -> groq.Groq:
+    return groq.Groq(timeout=GROQ_TIMEOUT, max_retries=GROQ_MAX_RETRIES)
 
 
 def video_source() -> YtDlpSource:
@@ -26,8 +38,12 @@ def video_source() -> YtDlpSource:
 
 
 def speech_to_text() -> GroqWhisper:
-    return GroqWhisper()
+    return GroqWhisper(client=groq_client())
 
 
 def translator() -> FallbackTranslator:
-    return FallbackTranslator([GroqLlmTranslator(PRIMARY_MODEL), GroqLlmTranslator(FALLBACK_MODEL)])
+    client = groq_client()
+    return FallbackTranslator([
+        GroqLlmTranslator(PRIMARY_MODEL, client=client),
+        GroqLlmTranslator(FALLBACK_MODEL, client=client),
+    ])
