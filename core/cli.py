@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 from dataclasses import asdict
@@ -24,6 +25,14 @@ PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-20b"
 
 
+def _video_source() -> YtDlpSource:
+    cookies_file = os.environ.get("YTDLP_COOKIES_FILE") or None
+    return YtDlpSource(
+        cookies_file=Path(cookies_file) if cookies_file else None,
+        cookies_browser=os.environ.get("YTDLP_COOKIES_BROWSER") or None,
+    )
+
+
 def _translate(args: argparse.Namespace) -> int:
     name = args.name or datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = Path(args.out)
@@ -38,7 +47,7 @@ def _translate(args: argparse.Namespace) -> int:
                 name=name,
                 work_dir=Path(tmp),
                 out_dir=out_dir,
-                source=YtDlpSource(),
+                source=_video_source(),
                 stt=GroqWhisper(),
                 translator=translator,
             )
