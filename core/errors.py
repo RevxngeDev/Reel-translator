@@ -17,6 +17,10 @@ class SpeechToTextError(PipelineError):
     """The STT provider failed or returned an unusable response."""
 
 
+class NoSpeechError(SpeechToTextError):
+    """The audio contains no transcribable speech."""
+
+
 class UnsupportedLanguageError(PipelineError):
     """The detected or requested language is not es, en or ru."""
 

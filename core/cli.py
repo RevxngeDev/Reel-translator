@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import tempfile
 import time
@@ -14,30 +13,14 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from core import SUPPORTED_LANGS
+from core import SUPPORTED_LANGS, providers
 from core.errors import PipelineError
 from core.pipeline import run_job
-from core.source import YtDlpSource
-from core.stt import GroqWhisper
-from core.translate import FallbackTranslator, GroqLlmTranslator
-
-# D-012
-PRIMARY_MODEL = "openai/gpt-oss-120b"
-FALLBACK_MODEL = "openai/gpt-oss-20b"
-
-
-def _video_source() -> YtDlpSource:
-    cookies_file = os.environ.get("YTDLP_COOKIES_FILE") or None
-    return YtDlpSource(
-        cookies_file=Path(cookies_file) if cookies_file else None,
-        cookies_browser=os.environ.get("YTDLP_COOKIES_BROWSER") or None,
-    )
 
 
 def _translate(args: argparse.Namespace) -> int:
     name = args.name or datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = Path(args.out)
-    translator = FallbackTranslator([GroqLlmTranslator(PRIMARY_MODEL), GroqLlmTranslator(FALLBACK_MODEL)])
 
     started = time.monotonic()
     # Media lives only inside this temporary directory and is deleted on exit.
@@ -49,9 +32,9 @@ def _translate(args: argparse.Namespace) -> int:
                 name=name,
                 work_dir=Path(tmp),
                 out_dir=out_dir,
-                source=_video_source(),
-                stt=GroqWhisper(),
-                translator=translator,
+                source=providers.video_source(),
+                stt=providers.speech_to_text(),
+                translator=providers.translator(),
                 render_video=not args.no_video,
             )
         except PipelineError as exc:

@@ -21,3 +21,6 @@ out/
 
 # Cookies / session files (never committed)
 *cookies*.txt
+
+# Bot database (user data)
+data/

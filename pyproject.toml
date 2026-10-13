@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "groq>=1.7.0",
     "python-dotenv>=1.2.4",
+    "python-telegram-bot>=22.8",
     "yt-dlp>=2026.8.19",
 ]
 

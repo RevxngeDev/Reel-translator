@@ -10,7 +10,7 @@ from pathlib import Path
 
 from core import SUPPORTED_LANGS, transcript
 from core.audio import extract_audio
-from core.errors import SameLanguageError, SpeechToTextError, UnsupportedLanguageError
+from core.errors import NoSpeechError, SameLanguageError, UnsupportedLanguageError
 from core.render import srt_bilingual, study_transcript, video_subtitled
 from core.render.layout import build_cues, violations
 from core.resegment import resegment
@@ -62,7 +62,7 @@ def run_job(
     if source_lang == target_lang:
         raise SameLanguageError(f"The video is already in {target_lang}")
     if not stt_result.segments:
-        raise SpeechToTextError("No speech detected in the video")
+        raise NoSpeechError("No speech detected in the video")
 
     segments = resegment(stt_result)
     result = translator.translate(segments, source_lang, target_lang)
