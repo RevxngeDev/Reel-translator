@@ -141,14 +141,19 @@ async def _post_shutdown(app: Application) -> None:
 
 
 def build_application(config: Config) -> Application:
-    app = (
+    builder = (
         ApplicationBuilder()
         .token(config.token)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .get_updates_connect_timeout(30)
         .media_write_timeout(120)
         .post_init(_post_init)
         .post_shutdown(_post_shutdown)
-        .build()
     )
+    if config.proxy:
+        builder = builder.proxy(config.proxy).get_updates_proxy(config.proxy)
+    app = builder.build()
     app.bot_data["state"] = BotState(config, Database(config.db_path))
     private = filters.ChatType.PRIVATE
     app.add_handler(CommandHandler("start", start, filters=private))
