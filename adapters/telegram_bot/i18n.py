@@ -17,18 +17,52 @@ UI_LANGS = ("es", "en", "ru")
 
 LANG_LABELS = {"es": "🇪🇸 Español", "en": "🇬🇧 English", "ru": "🇷🇺 Русский"}
 
+# Shown before the user has chosen a bot language, so it is in all three at once.
+CHOOSE_UI_PROMPT = "🗣 Elige el idioma del bot · Choose the bot language · Выбери язык бота"
+
 MESSAGES: dict[str, dict[str, str]] = {
     "start": {
         "es": "¡Hola! Envíame el link de un reel en español, inglés o ruso y te devuelvo el video "
-              "con subtítulos bilingües y la transcripción para estudiar.\n\n"
-              "Primero elige a qué idioma traducir con /idioma.",
+              "con subtítulos bilingües: el original arriba y la traducción abajo.",
         "en": "Hi! Send me a link to a reel in Spanish, English or Russian and I'll send back the "
-              "video with bilingual subtitles plus a study transcript.\n\n"
-              "First choose the language to translate into with /idioma.",
+              "video with bilingual subtitles: the original on top, the translation below.",
         "ru": "Привет! Отправь мне ссылку на рилс на испанском, английском или русском, и я верну "
-              "видео с двуязычными субтитрами и расшифровку для изучения.\n\n"
-              "Сначала выбери язык перевода командой /idioma.",
+              "видео с двуязычными субтитрами: оригинал сверху, перевод снизу.",
     },
+    "help": {
+        "es": "Cómo usarme:\n"
+              "1. Envíame el link de un reel (Instagram u otra red).\n"
+              "2. Espera unos segundos: te devuelvo el video subtitulado.\n\n"
+              "🎯 Idioma de traducción: a qué idioma traduzco los videos.\n"
+              "🗣 Idioma del bot: en qué idioma te hablo yo.",
+        "en": "How to use me:\n"
+              "1. Send me a reel link (Instagram or another network).\n"
+              "2. Wait a few seconds: I'll send back the subtitled video.\n\n"
+              "🎯 Translation language: the language I translate videos into.\n"
+              "🗣 Bot language: the language I talk to you in.",
+        "ru": "Как мной пользоваться:\n"
+              "1. Отправь ссылку на рилс (Instagram или другая сеть).\n"
+              "2. Подожди немного — я пришлю видео с субтитрами.\n\n"
+              "🎯 Язык перевода: на какой язык я перевожу видео.\n"
+              "🗣 Язык бота: на каком языке я с тобой общаюсь.",
+    },
+    "ui_set": {
+        "es": "✅ Te hablaré en español.",
+        "en": "✅ I'll talk to you in English.",
+        "ru": "✅ Буду общаться с тобой на русском.",
+    },
+    "menu_ready": {
+        "es": "Todo listo. Envíame el link de un reel cuando quieras.",
+        "en": "All set. Send me a reel link whenever you like.",
+        "ru": "Всё готово. Присылай ссылку на рилс, когда захочешь.",
+    },
+    "btn_target": {"es": "🎯 Idioma de traducción", "en": "🎯 Translation language", "ru": "🎯 Язык перевода"},
+    "btn_ui": {"es": "🗣 Idioma del bot", "en": "🗣 Bot language", "ru": "🗣 Язык бота"},
+    "btn_help": {"es": "❓ Ayuda", "en": "❓ Help", "ru": "❓ Помощь"},
+    "cmd_start": {"es": "Empezar", "en": "Start", "ru": "Начать"},
+    "cmd_idioma": {"es": "Idioma de traducción", "en": "Translation language", "ru": "Язык перевода"},
+    "cmd_idioma_bot": {"es": "Idioma del bot", "en": "Bot language", "ru": "Язык бота"},
+    "cmd_ayuda": {"es": "Ayuda", "en": "Help", "ru": "Помощь"},
     "choose_lang": {
         "es": "¿A qué idioma quieres traducir los videos?",
         "en": "Which language should I translate videos into?",
@@ -60,9 +94,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "⏳ Принято. Обрабатываю… (место в очереди: {position})",
     },
     "done": {
-        "es": "✅ Listo ({source} → {target}). Abajo tienes la transcripción para estudiar.",
-        "en": "✅ Done ({source} → {target}). The study transcript is below.",
-        "ru": "✅ Готово ({source} → {target}). Ниже расшифровка для изучения.",
+        "es": "✅ Listo ({source} → {target}).",
+        "en": "✅ Done ({source} → {target}).",
+        "ru": "✅ Готово ({source} → {target}).",
     },
     "err_fetch": {
         "es": "❌ No pude descargar ese video. Revisa que el link sea correcto y el reel sea público.",
@@ -114,6 +148,14 @@ def ui_lang(telegram_language_code: str | None) -> str:
 
 def t(key: str, ui: str, /, **kwargs: object) -> str:
     return MESSAGES[key][ui].format(**kwargs)
+
+
+def button_action(text: str) -> str | None:
+    """Which menu button a text is, in any language (the user may have switched)."""
+    for key in ("btn_target", "btn_ui", "btn_help"):
+        if text in MESSAGES[key].values():
+            return key
+    return None
 
 
 class OutputTooLargeError(PipelineError):

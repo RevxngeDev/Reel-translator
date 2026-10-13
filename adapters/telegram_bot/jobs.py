@@ -1,4 +1,5 @@
-"""Runs one queued job: pipeline in a worker thread, delivery, and guaranteed cleanup.
+"""Runs one queued job: pipeline in a worker thread, delivery of the subtitled video
+(D-019), and guaranteed cleanup.
 
 Every job ends with a message to the user (Phase 2 gate) and with no video or audio
 left on disk: all job files live in one temporary directory removed at the end.
@@ -26,7 +27,6 @@ TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024  # standard Bot API upload limit (D-006
 class Sender(Protocol):
     async def send_message(self, chat_id: int, text: str) -> object: ...
     async def send_video(self, chat_id: int, video: object, **kwargs: object) -> object: ...
-    async def send_document(self, chat_id: int, document: object, **kwargs: object) -> object: ...
 
 
 PipelineRunner = Callable[..., pipeline.JobReport]
@@ -54,8 +54,6 @@ async def process_job(
         caption = i18n.t("done", user.ui_lang, source=report.source_lang, target=report.target_lang)
         with report.video_path.open("rb") as video:
             await bot.send_video(job.user_id, video, caption=caption, supports_streaming=True)
-        with report.study_path.open("rb") as study:
-            await bot.send_document(job.user_id, study, filename=f"transcript-{job_id}.txt")
         db.mark_done(job_id, report.source_lang, report.audio_seconds)
         return True
     except Exception as exc:  # every failure must reach the user

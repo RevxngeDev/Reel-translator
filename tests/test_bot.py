@@ -72,12 +72,12 @@ def failing_runner(exc):
     return run, seen
 
 
-def test_success_sends_video_and_transcript_and_cleans_up(db):
+def test_success_sends_only_the_video_and_cleans_up(db):
     bot, (run, seen) = FakeBot(), ok_runner()
     job_id = _job(db)
     assert asyncio.run(process_job(job_id, db, bot, run)) is True
     assert bot.videos[0][0] == 7 and "es → en" in bot.videos[0][2]["caption"]
-    assert bot.documents[0][1] == "Hola\n  Hello".encode()
+    assert bot.documents == []  # the study transcript is not sent by the bot (D-019)
     assert db.get_job(job_id).status == "done"
     assert not seen["root"].exists()
 
@@ -133,3 +133,38 @@ def test_every_message_formats_with_its_handler_arguments():
     for key in i18n.MESSAGES:
         for ui in i18n.UI_LANGS:
             assert "{" not in i18n.t(key, ui, **args), (key, ui)
+
+
+def test_chosen_bot_language_survives_telegram_language(db):
+    db.upsert_user(9, "ru", True)          # first contact: default from Telegram
+    assert db.get_user(9).ui_lang == "ru" and not db.get_user(9).ui_lang_chosen
+    db.set_ui_lang(9, "es")
+    assert db.upsert_user(9, "ru", True).ui_lang == "es"  # explicit choice wins
+
+
+def test_unchosen_bot_language_follows_telegram(db):
+    db.upsert_user(10, "en", True)
+    assert db.upsert_user(10, "ru", True).ui_lang == "ru"
+
+
+def test_menu_buttons_recognized_in_any_language():
+    for ui in i18n.UI_LANGS:
+        assert i18n.button_action(i18n.t("btn_ui", ui)) == "btn_ui"
+        assert i18n.button_action(i18n.t("btn_target", ui)) == "btn_target"
+        assert i18n.button_action(i18n.t("btn_help", ui)) == "btn_help"
+    assert i18n.button_action("https://www.instagram.com/reel/x/") is None
+
+
+def test_old_database_is_migrated(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE users (telegram_id INTEGER PRIMARY KEY, target_lang TEXT, "
+                 "ui_lang TEXT NOT NULL DEFAULT 'en', is_whitelisted INTEGER NOT NULL DEFAULT 0, "
+                 "created_at TEXT NOT NULL)")
+    conn.execute("INSERT INTO users VALUES (1, 'ru', 'es', 1, 'x')")
+    conn.commit()
+    conn.close()
+    d = Database(path)
+    assert d.get_user(1).ui_lang_chosen is False and d.get_user(1).target_lang == "ru"
+    d.close()
