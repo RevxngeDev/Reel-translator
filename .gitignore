@@ -15,3 +15,6 @@ venv/
 *.egg-info/
 build/
 dist/
+
+# Local job outputs (third-party content)
+out/
