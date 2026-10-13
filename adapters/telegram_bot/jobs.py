@@ -53,7 +53,13 @@ async def process_job(
             raise i18n.OutputTooLargeError(f"video is {report.video_bytes} bytes")
         caption = i18n.t("done", user.ui_lang, source=report.source_lang, target=report.target_lang)
         with report.video_path.open("rb") as video:
-            await bot.send_video(job.user_id, video, caption=caption, supports_streaming=True)
+            # Explicit dimensions/duration: without them Telegram clients may show the
+            # video small or with the wrong aspect until it loads (D-021).
+            await bot.send_video(
+                job.user_id, video, caption=caption, supports_streaming=True,
+                width=report.video_width, height=report.video_height,
+                duration=round(report.video_seconds),
+            )
         db.mark_done(job_id, report.source_lang, report.audio_seconds)
         return True
     except Exception as exc:  # every failure must reach the user

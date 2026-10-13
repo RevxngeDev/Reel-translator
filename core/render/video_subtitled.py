@@ -17,16 +17,18 @@ from core.render.layout import Cue
 FONT = "Arial"  # ships with Windows; covers Latin and Cyrillic
 
 
-def probe_size(video: Path) -> tuple[int, int]:
+def probe(video: Path) -> tuple[int, int, float]:
+    """Width, height and duration (s) of the first video stream."""
     result = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height", "-of", "json", str(video)],
+         "-show_entries", "stream=width,height:format=duration", "-of", "json", str(video)],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
         raise RenderError(f"ffprobe failed: {result.stderr.strip()}")
-    stream = json.loads(result.stdout)["streams"][0]
-    return int(stream["width"]), int(stream["height"])
+    data = json.loads(result.stdout)
+    stream = data["streams"][0]
+    return int(stream["width"]), int(stream["height"]), float(data["format"].get("duration") or 0)
 
 
 def _ass_time(seconds: float) -> str:
@@ -73,7 +75,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def render(cues: list[Cue], video: Path, out_path: Path, work_dir: Path) -> Path:
-    width, height = probe_size(video)
+    width, height, _ = probe(video)
     ass = work_dir / "subs.ass"
     ass.write_text(build_ass(cues, width, height), encoding="utf-8")
     cmd = [
@@ -82,6 +84,9 @@ def render(cues: list[Cue], video: Path, out_path: Path, work_dir: Path) -> Path
         # Relative path: avoids escaping the drive colon inside the filter graph.
         "-vf", f"subtitles={ass.name}",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        # Cap the bitrate so outputs stay under Telegram's 50 MB upload limit:
+        # 3 Mbit/s is ~23 MB per minute of vertical video (D-021).
+        "-maxrate", "3M", "-bufsize", "6M",
         "-c:a", "copy",
         "-movflags", "+faststart",
         str(out_path.resolve()),

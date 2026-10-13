@@ -52,7 +52,8 @@ def ok_runner(video_bytes=10):
         seen["root"] = work_dir.parent
         return JobReport(
             transcript_path=out_dir / "t.json", srt_path=out_dir / "t.srt", study_path=study,
-            video_path=video, video_bytes=video_bytes, source_lang="es", target_lang=target_lang,
+            video_path=video, video_bytes=video_bytes, video_width=720, video_height=1280,
+            video_seconds=5.4, source_lang="es", target_lang=target_lang,
             segments=1, cues=1, layout_violations=[], audio_seconds=5.0, llm_tokens=10,
             llm_model="m", word_timestamps=True,
         )
@@ -77,6 +78,7 @@ def test_success_sends_only_the_video_and_cleans_up(db):
     job_id = _job(db)
     assert asyncio.run(process_job(job_id, db, bot, run)) is True
     assert bot.videos[0][0] == 7 and "es → en" in bot.videos[0][2]["caption"]
+    assert (bot.videos[0][2]["width"], bot.videos[0][2]["height"], bot.videos[0][2]["duration"]) == (720, 1280, 5)
     assert bot.documents == []  # the study transcript is not sent by the bot (D-019)
     assert db.get_job(job_id).status == "done"
     assert not seen["root"].exists()

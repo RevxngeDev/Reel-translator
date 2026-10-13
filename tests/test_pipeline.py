@@ -93,6 +93,7 @@ def test_full_job_writes_transcript_and_srt(tmp):
     assert report.layout_violations == []
     assert "HOLA" in report.study_path.read_text(encoding="utf-8")
     assert report.video_path.exists() and report.video_bytes > 0
+    assert (report.video_width, report.video_height) == (320, 240) and report.video_seconds > 1.5
 
 
 def test_unsupported_source_language_fails(tmp):

@@ -26,6 +26,9 @@ class JobReport:
     study_path: Path
     video_path: Path | None
     video_bytes: int
+    video_width: int
+    video_height: int
+    video_seconds: float
     source_lang: str
     target_lang: str
     segments: int
@@ -80,9 +83,10 @@ def run_job(
     srt_bilingual.write(cues, srt_path)
     study_path = out_dir / f"{name}.txt"
     study_transcript.write(segments, source_lang, target_lang, study_path)
-    video_path = None
+    video_path, width, height, seconds = None, 0, 0, 0.0
     if render_video:
         video_path = video_subtitled.render(cues, video, out_dir / f"{name}.mp4", work_dir)
+        width, height, seconds = video_subtitled.probe(video_path)
 
     return JobReport(
         transcript_path=transcript_path,
@@ -90,6 +94,9 @@ def run_job(
         study_path=study_path,
         video_path=video_path,
         video_bytes=video_path.stat().st_size if video_path else 0,
+        video_width=width,
+        video_height=height,
+        video_seconds=seconds,
         source_lang=source_lang,
         target_lang=target_lang,
         segments=len(segments),
