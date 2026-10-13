@@ -4,12 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-
-@dataclass
-class Word:
-    word: str
-    start: float
-    end: float
+from core.transcript import Word
 
 
 @dataclass

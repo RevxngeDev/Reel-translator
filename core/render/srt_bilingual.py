@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.transcript import Segment
+from core.render.layout import Cue
 
 
 def _timestamp(seconds: float) -> str:
@@ -15,15 +15,13 @@ def _timestamp(seconds: float) -> str:
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 
-def render(segments: list[Segment]) -> str:
+def render(cues: list[Cue]) -> str:
     blocks = []
-    for n, seg in enumerate(segments, start=1):
-        lines = [seg.original_text]
-        if seg.translated_text:
-            lines.append(seg.translated_text)
-        blocks.append(f"{n}\n{_timestamp(seg.start)} --> {_timestamp(seg.end)}\n" + "\n".join(lines) + "\n")
+    for n, cue in enumerate(cues, start=1):
+        lines = cue.original + cue.translation
+        blocks.append(f"{n}\n{_timestamp(cue.start)} --> {_timestamp(cue.end)}\n" + "\n".join(lines) + "\n")
     return "\n".join(blocks)
 
 
-def write(segments: list[Segment], path: Path) -> None:
-    path.write_text(render(segments), encoding="utf-8")
+def write(cues: list[Cue], path: Path) -> None:
+    path.write_text(render(cues), encoding="utf-8")

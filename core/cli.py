@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +39,7 @@ def _translate(args: argparse.Namespace) -> int:
     out_dir = Path(args.out)
     translator = FallbackTranslator([GroqLlmTranslator(PRIMARY_MODEL), GroqLlmTranslator(FALLBACK_MODEL)])
 
+    started = time.monotonic()
     # Media lives only inside this temporary directory and is deleted on exit.
     with tempfile.TemporaryDirectory(prefix="reel-") as tmp:
         try:
@@ -50,6 +52,7 @@ def _translate(args: argparse.Namespace) -> int:
                 source=_video_source(),
                 stt=GroqWhisper(),
                 translator=translator,
+                render_video=not args.no_video,
             )
         except PipelineError as exc:
             print(f"ERROR [{type(exc).__name__}]: {exc}", file=sys.stderr)
@@ -57,6 +60,7 @@ def _translate(args: argparse.Namespace) -> int:
 
     meta = {k: str(v) if isinstance(v, Path) else v for k, v in asdict(report).items()}
     meta["url"] = args.url
+    meta["elapsed_s"] = round(time.monotonic() - started, 1)
     (out_dir / f"{name}.meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(json.dumps(meta, indent=2))
     return 0
@@ -71,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("url", help="Reel URL")
     t.add_argument("--to", required=True, choices=SUPPORTED_LANGS, help="Target language")
     t.add_argument("--out", default="out", help="Output directory (default: out)")
+    t.add_argument("--no-video", action="store_true", help="Skip the subtitled video")
     t.add_argument("--name", help="Base name for output files (default: timestamp)")
     t.set_defaults(func=_translate)
 

@@ -36,3 +36,7 @@ class TranslationError(PipelineError):
 
 class TranslationMismatchError(TranslationError):
     """The translator response does not preserve segment ids 1:1."""
+
+
+class RenderError(PipelineError):
+    """An output file could not be rendered."""

@@ -11,10 +11,11 @@ from pathlib import Path
 from core import SUPPORTED_LANGS, transcript
 from core.audio import extract_audio
 from core.errors import SameLanguageError, SpeechToTextError, UnsupportedLanguageError
-from core.render import srt_bilingual
+from core.render import srt_bilingual, study_transcript, video_subtitled
+from core.render.layout import build_cues, violations
+from core.resegment import resegment
 from core.source.base import VideoSource
 from core.stt.base import SpeechToText
-from core.transcript import Segment
 from core.translate.base import Translator
 
 
@@ -22,9 +23,14 @@ from core.translate.base import Translator
 class JobReport:
     transcript_path: Path
     srt_path: Path
+    study_path: Path
+    video_path: Path | None
+    video_bytes: int
     source_lang: str
     target_lang: str
     segments: int
+    cues: int
+    layout_violations: list[str]
     audio_seconds: float
     llm_tokens: int
     llm_model: str
@@ -41,6 +47,7 @@ def run_job(
     source: VideoSource,
     stt: SpeechToText,
     translator: Translator,
+    render_video: bool = True,
 ) -> JobReport:
     if target_lang not in SUPPORTED_LANGS:
         raise UnsupportedLanguageError(target_lang, role="target")
@@ -57,28 +64,40 @@ def run_job(
     if not stt_result.segments:
         raise SpeechToTextError("No speech detected in the video")
 
-    segments = [
-        Segment(id=i, start=s.start, end=s.end, source_lang=source_lang, original_text=s.text)
-        for i, s in enumerate(stt_result.segments)
-    ]
+    segments = resegment(stt_result)
     result = translator.translate(segments, source_lang, target_lang)
     for seg in segments:
         seg.translated_text = result.translations[seg.id]
 
     out_dir.mkdir(parents=True, exist_ok=True)
     transcript_path = out_dir / f"{name}.json"
-    srt_path = out_dir / f"{name}.srt"
     transcript.save(segments, transcript_path)
-    srt_bilingual.write(segments, srt_path)
+
+    # Renderers read only the transcript (D-001).
+    segments = transcript.load(transcript_path)
+    cues = build_cues(segments)
+    srt_path = out_dir / f"{name}.srt"
+    srt_bilingual.write(cues, srt_path)
+    study_path = out_dir / f"{name}.txt"
+    study_transcript.write(segments, source_lang, target_lang, study_path)
+    video_path = None
+    if render_video:
+        video_path = video_subtitled.render(cues, video, out_dir / f"{name}.mp4", work_dir)
 
     return JobReport(
         transcript_path=transcript_path,
         srt_path=srt_path,
+        study_path=study_path,
+        video_path=video_path,
+        video_bytes=video_path.stat().st_size if video_path else 0,
         source_lang=source_lang,
         target_lang=target_lang,
         segments=len(segments),
+        cues=len(cues),
+        layout_violations=violations(cues),
         audio_seconds=stt_result.duration,
         llm_tokens=result.tokens,
         llm_model=result.model,
         word_timestamps=bool(stt_result.words),
     )
+

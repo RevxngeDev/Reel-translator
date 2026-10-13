@@ -43,7 +43,7 @@ class FakeStt:
             language=self.language,
             segments=[SttSegment(0.0, 1.0, "Hola"), SttSegment(1.0, 2.0, "amigos")],
             duration=2.0,
-            words=[Word("Hola", 0.0, 0.5)],
+            words=[Word("Hola", 0.1, 0.9), Word("amigos", 1.1, 1.9)],
         )
 
 
@@ -89,6 +89,10 @@ def test_full_job_writes_transcript_and_srt(tmp):
     assert [(s.id, s.original_text, s.translated_text) for s in segs] == [(0, "Hola", "HOLA"), (1, "amigos", "AMIGOS")]
     assert "Hola\nHOLA" in report.srt_path.read_text(encoding="utf-8")
     assert report.source_lang == "es" and report.llm_tokens == 42 and report.word_timestamps
+    assert segs[1].words[0].word == "amigos"
+    assert report.layout_violations == []
+    assert "HOLA" in report.study_path.read_text(encoding="utf-8")
+    assert report.video_path.exists() and report.video_bytes > 0
 
 
 def test_unsupported_source_language_fails(tmp):
