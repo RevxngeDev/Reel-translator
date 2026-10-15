@@ -33,10 +33,14 @@ def main_language(languages: list[str]) -> str:
 def translate_texts(
     texts: list[str], source_lang: str, target_lang: str, translator: Translator
 ) -> tuple[list[TextPair], int]:
-    """Translate plain texts through the segment translator (ids 1:1 enforced there)."""
+    """Translate plain texts through the segment translator (ids 1:1 enforced there).
+
+    OCR keeps the image's visual line breaks; they are joined before translating so
+    the translator sees whole sentences. The original keeps its line breaks.
+    """
     if not texts:
         return [], 0
-    segments = [Segment(id=i, start=0.0, end=0.0, source_lang=source_lang, original_text=t)
+    segments = [Segment(id=i, start=0.0, end=0.0, source_lang=source_lang, original_text=" ".join(t.split()))
                 for i, t in enumerate(texts)]
     result = translator.translate(segments, source_lang, target_lang)
-    return [TextPair(s.original_text, result.translations[s.id]) for s in segments], result.tokens
+    return [TextPair(texts[s.id], result.translations[s.id]) for s in segments], result.tokens

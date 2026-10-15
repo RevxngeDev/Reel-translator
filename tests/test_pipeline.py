@@ -143,24 +143,31 @@ def test_unsupported_target_fails(tmp):
         _run(tmp, target="de")
 
 
-def test_static_blocks_keeps_text_in_both_frames_not_spoken():
+def test_static_blocks_keeps_text_in_two_frames_not_spoken():
     a = ["POV: tu primer día", "Hola amigos", "@usuario"]
     b = ["POV: tu primer día!", "@usuario", "otra cosa"]
-    assert static_blocks(a, b, speech="Hola amigos, ¿qué tal?") == ["POV: tu primer día", "@usuario"]
+    assert static_blocks([a, b], speech="Hola amigos, ¿qué tal?") == ["POV: tu primer día", "@usuario"]
+
+
+def test_static_blocks_survives_one_bad_frame_and_dedupes():
+    text = "Una canción trágica sobre una mujer trans. Latinos: 🕺"
+    frames = [[text], [], [text + "!"]]  # middle frame misread (empty)
+    assert static_blocks(frames, speech="No se puede con él") == [text]
+    assert static_blocks([["solo una vez"], [], []], speech="") == []
 
 
 def test_static_blocks_tolerates_small_ocr_differences_between_frames():
     # Real case: the same overlay read as "no estan" in one frame and "no es tan" in the other.
     a = ["Cuando convivimos con otras parejas y nos damos cuenta que nuestra relación no estan tóxica como creíamos:"]
     b = ["Cuando convivimos con otras parejas y nos damos cuenta que nuestra relación no es tan tóxica como creíamos:"]
-    assert static_blocks(a, b, speech="Voltea a ver, te estoy hablando") == a
-    assert static_blocks(["Hola mundo"], ["Adiós a todos"], speech="") == []
+    assert static_blocks([a, b], speech="Voltea a ver, te estoy hablando") == a
+    assert static_blocks([["Hola mundo"], ["Adiós a todos"]], speech="") == []
 
 
 def test_reel_on_screen_text_is_translated(tmp):
-    ocr = FakeOcr([ImageText("es", ["Cuando convivimos"]), ImageText("es", ["Cuando convivimos"])])
+    ocr = FakeOcr([ImageText("es", ["Cuando convivimos"]), ImageText("", []), ImageText("es", ["Cuando convivimos"])])
     report = _run(tmp, ocr=ocr).videos[0]
-    assert ocr.calls == [2]  # both frames in one read
+    assert ocr.calls == [3]  # all frames in one read
     assert [(p.original, p.translated) for p in report.on_screen] == [("Cuando convivimos", "CUANDO CONVIVIMOS")]
 
 
@@ -173,14 +180,15 @@ def test_on_screen_detection_failure_does_not_fail_the_reel(tmp):
 
 
 def test_video_without_speech_but_with_on_screen_text(tmp):
-    ocr = FakeOcr([ImageText("es", ["Solo texto"]), ImageText("es", ["Solo texto"])])
+    ocr = FakeOcr([ImageText("es", ["Solo texto"]), ImageText("es", ["Solo texto"]), ImageText("es", ["Solo texto"])])
     report = _run(tmp, stt=FakeStt(silent=True), ocr=ocr).videos[0]
-    assert report.video_path is None and report.on_screen[0].translated == "SOLO TEXTO"
+    assert report.on_screen[0].translated == "SOLO TEXTO"
+    assert report.video_path.exists() and report.cues == 0  # overlay-only video (D-027)
 
 
 def test_video_without_speech_or_text_fails(tmp):
     with pytest.raises(NoSpeechError):
-        _run(tmp, stt=FakeStt(silent=True), ocr=FakeOcr([ImageText("", []), ImageText("", [])]))
+        _run(tmp, stt=FakeStt(silent=True), ocr=FakeOcr([ImageText("", [])] * 3))
 
 
 def test_image_post_translates_blocks_per_image(tmp):
@@ -198,7 +206,7 @@ def test_image_post_without_text_fails(tmp):
 
 
 def test_mixed_carousel_with_textless_images_still_processes_the_video(tmp):
-    ocr = FakeOcr([ImageText("", []), ImageText("", []), ImageText("", [])])  # 1 image + 2 frames
+    ocr = FakeOcr([ImageText("", [])] * 4)  # 1 image + 3 frames
     result = _run(tmp, source=FakeSource(videos=1, images=1), ocr=ocr)
     assert result.image_post is None and len(result.videos) == 1 and result.videos[0].video_path.exists()
 
@@ -206,3 +214,17 @@ def test_mixed_carousel_with_textless_images_still_processes_the_video(tmp):
 def test_image_post_in_target_language_fails(tmp):
     with pytest.raises(SameLanguageError):
         _run(tmp, target="en", source=FakeSource(videos=0, images=1), ocr=FakeOcr([ImageText("en", ["Hi"])]))
+
+
+def test_translate_texts_joins_ocr_line_breaks_but_keeps_original():
+    from core.pipeline.common import translate_texts
+
+    class Recorder:
+        def translate(self, segments, source_lang, target_lang):
+            self.sent = [seg.original_text for seg in segments]
+            return TranslationResult({seg.id: "T" for seg in segments}, tokens=1, model="m")
+
+    rec = Recorder()
+    pairs, _ = translate_texts(["A menudo\nacompañado de\nun gesto"], "es", "en", rec)
+    assert rec.sent == ["A menudo acompañado de un gesto"]
+    assert pairs[0].original == "A menudo\nacompañado de\nun gesto"

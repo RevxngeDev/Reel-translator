@@ -7,6 +7,7 @@ import logging
 import re
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram.error import NetworkError
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -173,6 +174,10 @@ async def link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Unexpected handler errors are logged and the user still gets a reply."""
+    if update is None and isinstance(context.error, NetworkError):
+        # Polling lost the connection (e.g. proxy down); PTB retries by itself.
+        log.warning("Telegram unreachable: %s", context.error)
+        return
     log.error("handler error", exc_info=context.error)
     if isinstance(update, Update) and update.effective_chat:
         ui = i18n.ui_lang(update.effective_user.language_code if update.effective_user else None)

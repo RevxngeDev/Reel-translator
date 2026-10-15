@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 
 from core.errors import RenderError
-from core.render.layout import Cue
+from core.render.layout import MAX_LINE_CHARS, Cue, wrap
 
 FONT = "Arial"  # ships with Windows; covers Latin and Cyrillic
 
@@ -43,7 +43,24 @@ def _escape(line: str) -> str:
     return line.replace("\\", "\\\\").replace("{", "(").replace("}", ")")
 
 
-def build_ass(cues: list[Cue], width: int, height: int) -> str:
+OVERLAY_MAX_LINES = 5
+
+
+def _overlay_lines(texts: list[str]) -> list[str]:
+    lines: list[str] = []
+    for text in texts:
+        wrapped = wrap(text, MAX_LINE_CHARS, OVERLAY_MAX_LINES)
+        if wrapped is None:  # very long: hard-cut, keeping at most OVERLAY_MAX_LINES lines
+            flat = " ".join(text.split())
+            wrapped = [flat[i:i + MAX_LINE_CHARS] for i in range(0, len(flat), MAX_LINE_CHARS)][:OVERLAY_MAX_LINES]
+        lines.extend(wrapped)
+    return lines
+
+
+def build_ass(cues: list[Cue], width: int, height: int,
+              overlay: list[str] | None = None, duration: float = 0.0) -> str:
+    """Speech cues at the bottom. `overlay` (translations of static on-screen text) is
+    shown for the whole video: at the top when there are speech cues, else at the bottom."""
     orig_size = round(width * 0.040)
     trans_size = round(width * 0.036)
     outline = max(2, round(width * 0.004))
@@ -61,6 +78,7 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Orig,{FONT},{orig_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline},0,2,{margin_h},{margin_h},{margin_v},1
 Style: Trans,{FONT},{trans_size},&H0000E6FF,&H0000E6FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,{outline},0,2,{margin_h},{margin_h},{margin_v},1
+Style: Overlay,{FONT},{trans_size},&H0000E6FF,&H0000E6FF,&H60000000,&H60000000,0,0,0,0,100,100,0,0,3,{outline * 2},0,{8 if cues else 2},{margin_h},{margin_h},{round(height * 0.06) if cues else margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -71,13 +89,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if cue.translation:
             text += "\\N{\\rTrans}" + "\\N".join(_escape(line) for line in cue.translation)
         events.append(f"Dialogue: 0,{_ass_time(cue.start)},{_ass_time(cue.end)},Orig,,0,0,0,,{text}")
+    if overlay and duration > 0:
+        text = "\\N".join(_escape(line) for line in _overlay_lines(overlay))
+        events.append(f"Dialogue: 1,{_ass_time(0)},{_ass_time(duration)},Overlay,,0,0,0,,{text}")
     return header + "\n".join(events) + "\n"
 
 
-def render(cues: list[Cue], video: Path, out_path: Path, work_dir: Path) -> Path:
-    width, height, _ = probe(video)
+def render(cues: list[Cue], video: Path, out_path: Path, work_dir: Path,
+           overlay: list[str] | None = None) -> Path:
+    width, height, duration = probe(video)
     ass = work_dir / "subs.ass"
-    ass.write_text(build_ass(cues, width, height), encoding="utf-8")
+    ass.write_text(build_ass(cues, width, height, overlay, duration), encoding="utf-8")
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(video.resolve()),

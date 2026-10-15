@@ -33,14 +33,18 @@ _SCHEMA = {
     "additionalProperties": False,
 }
 
-_PROMPT = """Translate the text segments of a short social-media post (video subtitles or text shown in images) from {src} to {tgt}.
-The audience is a language learner (A2-B2) who will read the original and the translation side by side.
+_PROMPT = """You translate the text of one short social-media post (video subtitles, on-screen captions or text in images) from {src} to {tgt}.
+The reader is a language learner (A2-B2) who sees the original next to your translation, so the translation must sound like a native {tgt} speaker wrote it.
 
 Rules:
-- Return exactly one output segment per input segment, with the same id, in the same order.
-- Never merge, split, drop or add segments. If a segment is a fragment, translate the fragment.
-- Use the surrounding segments as context, but keep each translation inside its own segment.
-- Translate naturally and faithfully; keep slang meaning, do not explain it.
+- Return exactly one output segment per input segment, with the same id, in the same order. Never merge, split, drop or add segments. If a segment is a fragment, translate the fragment.
+- All segments belong to the same post: read them all first and use them as context (who is speaking, the joke, the topic).
+- Translate the meaning, not the words. Use the phrasing a native {tgt} speaker would naturally use in that situation (e.g. a casual "I forgot" rather than a literal "I did not remember").
+- Slang, idioms and sayings: render their real meaning; if {tgt} has a common equivalent expression, use it. Never transliterate {src} words into {tgt} letters.
+- If the post is teaching a word or saying (a vocabulary or "sayings" post): keep that word or saying in {src} exactly as written, translate any literal gloss in parentheses into {tgt}, and translate the explanation. When {tgt} has a well-known equivalent expression, add it after an equals sign, e.g. "PAGAR EL PATO (pay the duck) = to take the blame for others".
+- Keep emojis, hashtags, names and @mentions unchanged. Keep the tone (humor, irony, drama).
+- The source may be OCR text in ALL CAPS: write the translation in normal sentence case.
+- Keep the speaker's gender consistent with the context.
 
 Input segments (JSON):
 {segments}"""

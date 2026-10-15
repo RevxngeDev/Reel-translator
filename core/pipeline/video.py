@@ -15,7 +15,7 @@ from core import SUPPORTED_LANGS, transcript
 from core.audio import extract_audio
 from core.errors import NoSpeechError
 from core.ocr.base import ImageTextReader
-from core.pipeline.common import TextPair, check_languages, translate_texts
+from core.pipeline.common import TextPair, check_languages, main_language, translate_texts
 from core.render import srt_bilingual, study_transcript, video_subtitled
 from core.render.layout import build_cues, violations
 from core.resegment import resegment
@@ -24,7 +24,9 @@ from core.translate.base import Translator
 
 log = logging.getLogger(__name__)
 
-FRAME_POSITIONS = (0.25, 0.75)
+# Three frames in one OCR call; text seen in at least two of them counts as static.
+# Two frames proved fragile: one bad OCR read was enough to lose the text.
+FRAME_POSITIONS = (0.2, 0.5, 0.8)
 SPEECH_OVERLAP = 0.7  # on-screen text whose words are mostly spoken = burned-in captions
 # OCR of two frames of the same static text can differ slightly ("estan" vs "es tan").
 FRAME_SIMILARITY = 0.85
@@ -32,7 +34,7 @@ FRAME_SIMILARITY = 0.85
 
 @dataclass
 class VideoReport:
-    video_path: Path | None  # None when the video had no speech, only on-screen text
+    video_path: Path | None  # None only when rendering was skipped (render_video=False)
     source_lang: str
     target_lang: str
     on_screen: list[TextPair] = field(default_factory=list)
@@ -60,20 +62,28 @@ def _norm(text: str) -> str:
     return " ".join(_words(text))
 
 
-def static_blocks(frame_a: list[str], frame_b: list[str], speech: str) -> list[str]:
-    """Blocks present (allowing small OCR differences) in both frames and not mostly
-    contained in the speech."""
-    in_b = [_norm(b) for b in frame_b]
+def _similar(a: str, b: str) -> bool:
+    return SequenceMatcher(None, a, b).ratio() >= FRAME_SIMILARITY
+
+
+def static_blocks(frames: list[list[str]], speech: str) -> list[str]:
+    """Blocks seen (allowing small OCR differences) in at least two frames and not
+    mostly contained in the speech. Each static text is returned once, in order."""
+    normed = [[_norm(b) for b in blocks] for blocks in frames]
     spoken = set(_words(speech))
-    out = []
-    for block in frame_a:
-        words = _words(block)
-        norm = _norm(block)
-        if not words or not any(SequenceMatcher(None, norm, other).ratio() >= FRAME_SIMILARITY for other in in_b):
-            continue
-        if spoken and sum(w in spoken for w in words) / len(words) >= SPEECH_OVERLAP:
-            continue
-        out.append(block)
+    out: list[str] = []
+    chosen: list[str] = []
+    for i, blocks in enumerate(frames):
+        for block, norm in zip(blocks, normed[i]):
+            words = _words(block)
+            if not words or any(_similar(norm, c) for c in chosen):
+                continue
+            if not any(_similar(norm, other) for j, others in enumerate(normed) if j != i for other in others):
+                continue
+            if spoken and sum(w in spoken for w in words) / len(words) >= SPEECH_OVERLAP:
+                continue
+            out.append(block)
+            chosen.append(norm)
     return out
 
 
@@ -94,8 +104,12 @@ def _extract_frames(video: Path, work_dir: Path) -> list[Path]:
 def detect_on_screen_text(video: Path, work_dir: Path, ocr: ImageTextReader, speech: str) -> tuple[str, list[str]]:
     """(language, static text blocks). Never raises: detection is best effort."""
     try:
-        first, second = ocr.read(_extract_frames(video, work_dir))
-        return first.language, static_blocks(first.blocks, second.blocks, speech)
+        texts = ocr.read(_extract_frames(video, work_dir))
+        blocks = static_blocks([t.blocks for t in texts], speech)
+        language = main_language([t.language for t in texts])
+        log.info("on-screen text: blocks per frame %s, %d static (lang %r)",
+                 [len(t.blocks) for t in texts], len(blocks), language)
+        return language, blocks
     except Exception as exc:  # noqa: BLE001 — a failed detection must not fail the reel
         log.warning("on-screen text detection skipped: %s: %s", type(exc).__name__, exc)
         return "", []
@@ -105,6 +119,14 @@ def _translate_on_screen(lang: str, blocks: list[str], target_lang: str, transla
     if not blocks or lang not in SUPPORTED_LANGS or lang == target_lang:
         return [], 0
     return translate_texts(blocks, lang, target_lang, translator)
+
+
+def _render(cues, video: Path, out_dir: Path, name: str, work_dir: Path,
+            overlay: list[str]) -> tuple[Path, int, int, float]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = video_subtitled.render(cues, video, out_dir / f"{name}.mp4", work_dir, overlay=overlay)
+    width, height, seconds = video_subtitled.probe(path)
+    return path, width, height, seconds
 
 
 def process_video(
@@ -130,8 +152,13 @@ def process_video(
             raise NoSpeechError("No speech or on-screen text in the video")
         check_languages(screen_lang, target_lang)
         pairs, tokens = translate_texts(screen_blocks, screen_lang, target_lang, translator)
-        return VideoReport(video_path=None, source_lang=screen_lang, target_lang=target_lang,
-                           on_screen=pairs, audio_seconds=stt_result.duration, llm_tokens=tokens)
+        report = VideoReport(video_path=None, source_lang=screen_lang, target_lang=target_lang,
+                             on_screen=pairs, audio_seconds=stt_result.duration, llm_tokens=tokens)
+        if render_video:  # no speech cues: the on-screen translation goes at the bottom (D-027)
+            path, report.video_width, report.video_height, report.video_seconds = _render(
+                [], video, out_dir, name, work_dir, [p.translated for p in pairs])
+            report.video_path, report.video_bytes = path, path.stat().st_size
+        return report
 
     source_lang = stt_result.language
     check_languages(source_lang, target_lang)
@@ -153,9 +180,9 @@ def process_video(
     study_path = out_dir / f"{name}.txt"
     study_transcript.write(segments, source_lang, target_lang, study_path)
     video_path, width, height, seconds = None, 0, 0, 0.0
-    if render_video:
-        video_path = video_subtitled.render(cues, video, out_dir / f"{name}.mp4", work_dir)
-        width, height, seconds = video_subtitled.probe(video_path)
+    if render_video:  # on-screen translation burned at the top, speech at the bottom (D-027)
+        video_path, width, height, seconds = _render(
+            cues, video, out_dir, name, work_dir, [p.translated for p in on_screen])
 
     return VideoReport(
         video_path=video_path,
