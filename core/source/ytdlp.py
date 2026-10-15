@@ -1,4 +1,4 @@
-"""VideoSource backed by yt-dlp (D-010).
+"""MediaSource backed by yt-dlp (D-010): videos only; fallback after gallery-dl (D-025).
 
 Optional authenticated fetch (D-013): cookies of a dedicated secondary account,
 either from a Netscape cookies.txt file or read directly from a local browser.
@@ -11,6 +11,7 @@ from pathlib import Path
 import yt_dlp
 
 from core.errors import FetchError
+from core.source.base import Media
 
 
 class YtDlpSource:
@@ -38,9 +39,10 @@ class YtDlpSource:
             opts["cookiesfrombrowser"] = (self._cookies_browser,)
         return opts
 
-    def fetch(self, url: str, out_dir: Path) -> Path:
+    def fetch(self, url: str, out_dir: Path) -> Media:
         if self._cookies_file and not self._cookies_file.is_file():
             raise FetchError(f"Cookies file not found: {self._cookies_file}")
+        out_dir.mkdir(parents=True, exist_ok=True)
         try:
             with yt_dlp.YoutubeDL(self.options(out_dir)) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -49,4 +51,4 @@ class YtDlpSource:
             raise FetchError(f"Could not fetch video: {exc}") from exc
         if not path.exists():
             raise FetchError(f"Download finished but file is missing: {path}")
-        return path
+        return Media(videos=[path])

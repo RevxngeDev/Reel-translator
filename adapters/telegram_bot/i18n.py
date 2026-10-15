@@ -7,6 +7,8 @@ from __future__ import annotations
 from core.errors import (
     FetchError,
     NoSpeechError,
+    NoTextError,
+    OcrError,
     PipelineError,
     SameLanguageError,
     TranslationError,
@@ -22,28 +24,34 @@ CHOOSE_UI_PROMPT = "🗣 Elige el idioma del bot · Choose the bot language · �
 
 MESSAGES: dict[str, dict[str, str]] = {
     "start": {
-        "es": "¡Hola! Envíame el link de un reel en español, inglés o ruso y te devuelvo el video "
-              "con subtítulos bilingües: el original arriba y la traducción abajo.",
-        "en": "Hi! Send me a link to a reel in Spanish, English or Russian and I'll send back the "
-              "video with bilingual subtitles: the original on top, the translation below.",
-        "ru": "Привет! Отправь мне ссылку на рилс на испанском, английском или русском, и я верну "
-              "видео с двуязычными субтитрами: оригинал сверху, перевод снизу.",
+        "es": "¡Hola! Envíame el link de un reel o de una publicación con imágenes (también "
+              "carruseles) en español, inglés o ruso. Te devuelvo el video con subtítulos "
+              "bilingües, o el texto de las imágenes con su traducción.",
+        "en": "Hi! Send me a link to a reel or an image post (carousels too) in Spanish, English "
+              "or Russian. I'll send back the video with bilingual subtitles, or the text of the "
+              "images with its translation.",
+        "ru": "Привет! Отправь мне ссылку на рилс или пост с картинками (и карусели) на испанском, "
+              "английском или русском. Я верну видео с двуязычными субтитрами или текст с "
+              "картинок с переводом.",
     },
     "help": {
         "es": "Cómo usarme:\n"
-              "1. Envíame el link de un reel (Instagram u otra red).\n"
-              "2. Espera unos segundos: te devuelvo el video subtitulado.\n\n"
-              "🎯 Idioma de traducción: a qué idioma traduzco los videos.\n"
+              "1. Envíame el link de un reel, una imagen o un carrusel (Instagram u otra red).\n"
+              "2. Espera: te devuelvo el video subtitulado, o las imágenes con su texto traducido.\n"
+              "   Los carruseles largos pueden tardar 1–2 minutos.\n\n"
+              "🎯 Idioma de traducción: a qué idioma traduzco.\n"
               "🗣 Idioma del bot: en qué idioma te hablo yo.",
         "en": "How to use me:\n"
-              "1. Send me a reel link (Instagram or another network).\n"
-              "2. Wait a few seconds: I'll send back the subtitled video.\n\n"
-              "🎯 Translation language: the language I translate videos into.\n"
+              "1. Send me a link to a reel, an image or a carousel (Instagram or another network).\n"
+              "2. Wait: I'll send back the subtitled video, or the images with their text translated.\n"
+              "   Long carousels can take 1–2 minutes.\n\n"
+              "🎯 Translation language: the language I translate into.\n"
               "🗣 Bot language: the language I talk to you in.",
         "ru": "Как мной пользоваться:\n"
-              "1. Отправь ссылку на рилс (Instagram или другая сеть).\n"
-              "2. Подожди немного — я пришлю видео с субтитрами.\n\n"
-              "🎯 Язык перевода: на какой язык я перевожу видео.\n"
+              "1. Отправь ссылку на рилс, картинку или карусель (Instagram или другая сеть).\n"
+              "2. Подожди: я пришлю видео с субтитрами или картинки с переведённым текстом.\n"
+              "   Длинные карусели могут занять 1–2 минуты.\n\n"
+              "🎯 Язык перевода: на какой язык я перевожу.\n"
               "🗣 Язык бота: на каком языке я с тобой общаюсь.",
     },
     "ui_set": {
@@ -52,9 +60,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "✅ Буду общаться с тобой на русском.",
     },
     "menu_ready": {
-        "es": "Todo listo. Envíame el link de un reel cuando quieras.",
-        "en": "All set. Send me a reel link whenever you like.",
-        "ru": "Всё готово. Присылай ссылку на рилс, когда захочешь.",
+        "es": "Todo listo. Envíame el link de un reel o de una publicación con imágenes cuando quieras.",
+        "en": "All set. Send me a link to a reel or an image post whenever you like.",
+        "ru": "Всё готово. Присылай ссылку на рилс или пост с картинками, когда захочешь.",
+    },
+    "slide_header": {"es": "🖼 Imagen {n}/{total}", "en": "🖼 Image {n}/{total}", "ru": "🖼 Картинка {n}/{total}"},
+    "on_screen_header": {
+        "es": "📝 Texto en pantalla:",
+        "en": "📝 On-screen text:",
+        "ru": "📝 Текст на экране:",
+    },
+    "err_no_text": {
+        "es": "❌ No encontré texto para traducir en las imágenes de esa publicación.",
+        "en": "❌ I found no text to translate in that post's images.",
+        "ru": "❌ Я не нашёл текста для перевода на картинках этого поста.",
+    },
+    "err_ocr": {
+        "es": "❌ No pude leer el texto de las imágenes. Inténtalo de nuevo en unos minutos.",
+        "en": "❌ I couldn't read the text in the images. Please try again in a few minutes.",
+        "ru": "❌ Не удалось прочитать текст на картинках. Попробуй ещё раз через несколько минут.",
     },
     "btn_target": {"es": "🎯 Idioma de traducción", "en": "🎯 Translation language", "ru": "🎯 Язык перевода"},
     "btn_ui": {"es": "🗣 Idioma del bot", "en": "🗣 Bot language", "ru": "🗣 Язык бота"},
@@ -64,9 +88,9 @@ MESSAGES: dict[str, dict[str, str]] = {
     "cmd_idioma_bot": {"es": "Idioma del bot", "en": "Bot language", "ru": "Язык бота"},
     "cmd_ayuda": {"es": "Ayuda", "en": "Help", "ru": "Помощь"},
     "choose_lang": {
-        "es": "¿A qué idioma quieres traducir los videos?",
-        "en": "Which language should I translate videos into?",
-        "ru": "На какой язык переводить видео?",
+        "es": "¿A qué idioma quieres que traduzca?",
+        "en": "Which language should I translate into?",
+        "ru": "На какой язык переводить?",
     },
     "lang_set": {
         "es": "Listo: traduciré a {language}. Ahora envíame el link de un reel.",
@@ -114,9 +138,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "ru": "❌ Видео уже на языке перевода. Поменяй его командой /idioma.",
     },
     "err_no_speech": {
-        "es": "❌ No encontré voz en el video, así que no hay nada que traducir.",
-        "en": "❌ I found no speech in the video, so there's nothing to translate.",
-        "ru": "❌ В видео нет речи, поэтому переводить нечего.",
+        "es": "❌ No encontré voz ni texto en pantalla en el video, así que no hay nada que traducir.",
+        "en": "❌ I found no speech or on-screen text in the video, so there's nothing to translate.",
+        "ru": "❌ В видео нет ни речи, ни текста на экране, поэтому переводить нечего.",
     },
     "err_translation": {
         "es": "❌ Falló la traducción. Inténtalo de nuevo en unos minutos.",
@@ -174,6 +198,10 @@ def error_key(exc: BaseException) -> str:
         return "err_same_lang"
     if isinstance(exc, NoSpeechError):
         return "err_no_speech"
+    if isinstance(exc, NoTextError):
+        return "err_no_text"
+    if isinstance(exc, OcrError):
+        return "err_ocr"
     if isinstance(exc, TranslationError):
         return "err_translation"
     return "err_internal"

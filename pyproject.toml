@@ -3,8 +3,10 @@ name = "reel-translator"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "gallery-dl>=1.32.16",
     "groq>=1.7.0",
     "httpx>=0.28.1",
+    "pillow>=12.3.0",
     "python-dotenv>=1.2.4",
     "python-telegram-bot>=22.8",
     "yt-dlp>=2026.8.19",

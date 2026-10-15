@@ -1,43 +1,34 @@
-"""Orchestrates one job end to end and writes the transcript JSON.
+"""Orchestrates one job: fetch the post, then dispatch by content (D-025).
 
+1 video -> video path; images only -> image path; mixed carousel -> both.
 Media files are written to `work_dir`; deleting them is the caller's policy.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from core import SUPPORTED_LANGS, transcript
-from core.audio import extract_audio
-from core.errors import NoSpeechError, SameLanguageError, UnsupportedLanguageError
-from core.render import srt_bilingual, study_transcript, video_subtitled
-from core.render.layout import build_cues, violations
-from core.resegment import resegment
-from core.source.base import VideoSource
+from core import SUPPORTED_LANGS
+from core.errors import FetchError, NoTextError, UnsupportedLanguageError
+from core.ocr.base import ImageTextReader
+from core.pipeline.images import ImagePostReport, process_images
+from core.pipeline.video import VideoReport, process_video
+from core.source.base import MediaSource
 from core.stt.base import SpeechToText
 from core.translate.base import Translator
 
 
 @dataclass
-class JobReport:
-    transcript_path: Path
-    srt_path: Path
-    study_path: Path
-    video_path: Path | None
-    video_bytes: int
-    video_width: int
-    video_height: int
-    video_seconds: float
-    source_lang: str
-    target_lang: str
-    segments: int
-    cues: int
-    layout_violations: list[str]
-    audio_seconds: float
-    llm_tokens: int
-    llm_model: str
-    word_timestamps: bool
+class JobResult:
+    videos: list[VideoReport] = field(default_factory=list)
+    image_post: ImagePostReport | None = None
+
+    @property
+    def kind(self) -> str:
+        if self.image_post and self.videos:
+            return "mixed"
+        return "images" if self.image_post else "video"
 
 
 def run_job(
@@ -47,64 +38,33 @@ def run_job(
     name: str,
     work_dir: Path,
     out_dir: Path,
-    source: VideoSource,
+    source: MediaSource,
     stt: SpeechToText,
     translator: Translator,
+    ocr: ImageTextReader | None = None,
     render_video: bool = True,
-) -> JobReport:
+) -> JobResult:
     if target_lang not in SUPPORTED_LANGS:
         raise UnsupportedLanguageError(target_lang, role="target")
 
-    video = source.fetch(url, work_dir)
-    audio = extract_audio(video, work_dir)
-    stt_result = stt.transcribe(audio)
+    media = source.fetch(url, work_dir / "fetch")
+    if media.empty:
+        raise FetchError("The post has no video or image")
+    if media.images and ocr is None:
+        raise FetchError("The post contains images but no OCR reader is configured")
 
-    source_lang = stt_result.language
-    if source_lang not in SUPPORTED_LANGS:
-        raise UnsupportedLanguageError(source_lang)
-    if source_lang == target_lang:
-        raise SameLanguageError(f"The video is already in {target_lang}")
-    if not stt_result.segments:
-        raise NoSpeechError("No speech detected in the video")
-
-    segments = resegment(stt_result)
-    result = translator.translate(segments, source_lang, target_lang)
-    for seg in segments:
-        seg.translated_text = result.translations[seg.id]
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    transcript_path = out_dir / f"{name}.json"
-    transcript.save(segments, transcript_path)
-
-    # Renderers read only the transcript (D-001).
-    segments = transcript.load(transcript_path)
-    cues = build_cues(segments)
-    srt_path = out_dir / f"{name}.srt"
-    srt_bilingual.write(cues, srt_path)
-    study_path = out_dir / f"{name}.txt"
-    study_transcript.write(segments, source_lang, target_lang, study_path)
-    video_path, width, height, seconds = None, 0, 0, 0.0
-    if render_video:
-        video_path = video_subtitled.render(cues, video, out_dir / f"{name}.mp4", work_dir)
-        width, height, seconds = video_subtitled.probe(video_path)
-
-    return JobReport(
-        transcript_path=transcript_path,
-        srt_path=srt_path,
-        study_path=study_path,
-        video_path=video_path,
-        video_bytes=video_path.stat().st_size if video_path else 0,
-        video_width=width,
-        video_height=height,
-        video_seconds=seconds,
-        source_lang=source_lang,
-        target_lang=target_lang,
-        segments=len(segments),
-        cues=len(cues),
-        layout_violations=violations(cues),
-        audio_seconds=stt_result.duration,
-        llm_tokens=result.tokens,
-        llm_model=result.model,
-        word_timestamps=bool(stt_result.words),
-    )
-
+    result = JobResult()
+    if media.images:
+        try:
+            result.image_post = process_images(media.images, target_lang, name=name,
+                                               out_dir=out_dir, ocr=ocr, translator=translator)
+        except NoTextError:
+            if not media.videos:
+                raise  # a carousel's text-less images are fine if it has videos
+    for i, video in enumerate(media.videos):
+        suffix = f"-v{i + 1}" if len(media.videos) > 1 or media.images else ""
+        result.videos.append(process_video(
+            video, target_lang, name=f"{name}{suffix}", work_dir=work_dir / f"video{i + 1}",
+            out_dir=out_dir, stt=stt, translator=translator, ocr=ocr, render_video=render_video,
+        ))
+    return result

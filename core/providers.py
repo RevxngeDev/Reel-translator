@@ -11,7 +11,8 @@ from pathlib import Path
 import groq
 import httpx
 
-from core.source import YtDlpSource
+from core.ocr import GroqVisionReader
+from core.source import ChainSource, GalleryDlSource, YtDlpSource
 from core.stt import GroqWhisper
 from core.translate import FallbackTranslator, GroqLlmTranslator
 
@@ -29,12 +30,19 @@ def groq_client() -> groq.Groq:
     return groq.Groq(timeout=GROQ_TIMEOUT, max_retries=GROQ_MAX_RETRIES)
 
 
-def video_source() -> YtDlpSource:
+def media_source() -> ChainSource:
+    """gallery-dl first (handles image posts), yt-dlp as fallback (D-025). Both use
+    the same cookies of the secondary account (D-013)."""
     cookies_file = os.environ.get("YTDLP_COOKIES_FILE") or None
-    return YtDlpSource(
-        cookies_file=Path(cookies_file) if cookies_file else None,
-        cookies_browser=os.environ.get("YTDLP_COOKIES_BROWSER") or None,
-    )
+    cookies = {
+        "cookies_file": Path(cookies_file) if cookies_file else None,
+        "cookies_browser": os.environ.get("YTDLP_COOKIES_BROWSER") or None,
+    }
+    return ChainSource([GalleryDlSource(**cookies), YtDlpSource(**cookies)])
+
+
+def ocr_reader() -> GroqVisionReader:
+    return GroqVisionReader(client=groq_client())
 
 
 def speech_to_text() -> GroqWhisper:

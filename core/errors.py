@@ -6,7 +6,7 @@ class PipelineError(Exception):
 
 
 class FetchError(PipelineError):
-    """The video could not be fetched from its URL."""
+    """The post's media could not be fetched from its URL."""
 
 
 class AudioExtractionError(PipelineError):
@@ -40,6 +40,14 @@ class TranslationError(PipelineError):
 
 class TranslationMismatchError(TranslationError):
     """The translator response does not preserve segment ids 1:1."""
+
+
+class OcrError(PipelineError):
+    """The OCR provider failed or returned an unusable response."""
+
+
+class NoTextError(PipelineError):
+    """An image post contains no readable text to translate."""
 
 
 class RenderError(PipelineError):

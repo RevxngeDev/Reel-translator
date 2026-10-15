@@ -5,14 +5,20 @@ import pytest
 
 from adapters.telegram_bot import i18n
 from adapters.telegram_bot.db import Database
-from adapters.telegram_bot.jobs import TELEGRAM_UPLOAD_LIMIT, process_job
-from core.errors import FetchError, NoSpeechError, TranslationMismatchError
-from core.pipeline import JobReport
+from adapters.telegram_bot.jobs import TELEGRAM_UPLOAD_LIMIT, chunks, process_job
+from core.errors import FetchError, NoSpeechError, NoTextError, OcrError, TranslationMismatchError
+from core.pipeline import ImagePostReport, JobResult, TextPair, VideoReport
 
 
 class FakeBot:
     def __init__(self):
-        self.messages, self.videos, self.documents = [], [], []
+        self.messages, self.videos, self.documents, self.photos, self.groups = [], [], [], [], []
+
+    async def send_photo(self, chat_id, photo, **kwargs):
+        self.photos.append((chat_id, photo.read(), kwargs))
+
+    async def send_media_group(self, chat_id, media, **kwargs):
+        self.groups.append((chat_id, [(m.media, m.caption) for m in media]))
 
     async def send_message(self, chat_id, text):
         self.messages.append((chat_id, text))
@@ -37,7 +43,7 @@ def _job(db):
     return db.create_job(7, "https://example.invalid/reel", "en").id
 
 
-def ok_runner(video_bytes=10):
+def ok_runner(video_bytes=10, on_screen=None):
     seen = {}
 
     def run(url, target_lang, *, name, work_dir, out_dir):
@@ -50,13 +56,12 @@ def ok_runner(video_bytes=10):
         study = out_dir / f"{name}.txt"
         study.write_bytes("Hola\n  Hello".encode())
         seen["root"] = work_dir.parent
-        return JobReport(
+        return JobResult(videos=[VideoReport(
+            video_path=video, source_lang="es", target_lang=target_lang, on_screen=on_screen or [],
             transcript_path=out_dir / "t.json", srt_path=out_dir / "t.srt", study_path=study,
-            video_path=video, video_bytes=video_bytes, video_width=720, video_height=1280,
-            video_seconds=5.4, source_lang="es", target_lang=target_lang,
-            segments=1, cues=1, layout_violations=[], audio_seconds=5.0, llm_tokens=10,
-            llm_model="m", word_timestamps=True,
-        )
+            video_bytes=video_bytes, video_width=720, video_height=1280, video_seconds=5.4,
+            segments=1, cues=1, audio_seconds=5.0, llm_tokens=10, llm_model="m", word_timestamps=True,
+        )])
 
     return run, seen
 
@@ -88,6 +93,8 @@ def test_success_sends_only_the_video_and_cleans_up(db):
     (FetchError("x"), "err_fetch"),
     (NoSpeechError("x"), "err_no_speech"),
     (TranslationMismatchError("x"), "err_translation"),
+    (NoTextError("x"), "err_no_text"),
+    (OcrError("x"), "err_ocr"),
     (RuntimeError("bug"), "err_internal"),
 ])
 def test_every_failure_notifies_user_and_cleans_up(db, exc, key):
@@ -131,7 +138,7 @@ def test_ui_lang_fallback():
 
 
 def test_every_message_formats_with_its_handler_arguments():
-    args = {"language": "English", "user_id": 1, "position": 1, "source": "es", "target": "en"}
+    args = {"language": "English", "user_id": 1, "position": 1, "source": "es", "target": "en", "n": 1, "total": 2}
     for key in i18n.MESSAGES:
         for ui in i18n.UI_LANGS:
             assert "{" not in i18n.t(key, ui, **args), (key, ui)
@@ -170,3 +177,64 @@ def test_old_database_is_migrated(tmp_path):
     d = Database(path)
     assert d.get_user(1).ui_lang_chosen is False and d.get_user(1).target_lang == "ru"
     d.close()
+
+
+def image_runner(n_images, slides):
+    seen = {}
+
+    def run(url, target_lang, *, name, work_dir, out_dir):
+        work_dir.mkdir(parents=True)
+        images = []
+        for i in range(n_images):
+            p = work_dir / f"{i:03}.jpg"
+            p.write_bytes(f"img{i}".encode())
+            images.append(p)
+        seen["root"] = work_dir.parent
+        return JobResult(image_post=ImagePostReport(images=images, slides=slides, source_lang="en",
+                                                    target_lang=target_lang))
+
+    return run, seen
+
+
+def test_carousel_sends_album_and_one_message_per_slide_with_text(db):
+    slides = [[TextPair("Pick one", "Elige uno")], [], [TextPair("A) Yes", "A) Sí"), TextPair("B) No", "B) No")]]
+    bot, (run, seen) = FakeBot(), image_runner(3, slides)
+    assert asyncio.run(process_job(_job(db), db, bot, run)) is True
+    (chat, media), = bot.groups
+    assert chat == 7 and len(media) == 3
+    assert "en → en" in media[0][1] and media[1][1] is None
+    assert [m[1] for m in bot.messages] == [
+        i18n.t("slide_header", "es", n=1, total=3) + "\n\nPick one\n➜ Elige uno",
+        i18n.t("slide_header", "es", n=3, total=3) + "\n\nA) Yes\n➜ A) Sí\n\nB) No\n➜ B) No",
+    ]
+    assert not seen["root"].exists()
+
+
+def test_single_image_is_sent_as_photo_without_slide_header(db):
+    bot, (run, _) = FakeBot(), image_runner(1, [[TextPair("Hello", "Hola")]])
+    assert asyncio.run(process_job(_job(db), db, bot, run)) is True
+    assert bot.photos[0][1] == b"img0" and bot.groups == []
+    assert bot.messages == [(7, "Hello\n➜ Hola")]
+
+
+def test_on_screen_text_goes_in_video_caption(db):
+    bot, (run, _) = FakeBot(), ok_runner(on_screen=[TextPair("Cuando convivimos", "When we live together")])
+    assert asyncio.run(process_job(_job(db), db, bot, run)) is True
+    caption = bot.videos[0][2]["caption"]
+    assert i18n.t("on_screen_header", "es") in caption
+    assert "Cuando convivimos\n➜ When we live together" in caption
+
+
+def test_video_without_speech_sends_only_on_screen_text(db):
+    def run(url, target_lang, *, name, work_dir, out_dir):
+        return JobResult(videos=[VideoReport(video_path=None, source_lang="es", target_lang=target_lang,
+                                             on_screen=[TextPair("Hola", "Hello")])])
+    bot = FakeBot()
+    assert asyncio.run(process_job(_job(db), db, bot, run)) is True
+    assert bot.videos == [] and "Hola\n➜ Hello" in bot.messages[0][1]
+
+
+def test_long_text_is_chunked_on_paragraphs():
+    text = "\n\n".join(["x" * 1500] * 5)
+    pieces = chunks(text)
+    assert all(len(piece) <= 4000 for piece in pieces) and "\n\n".join(pieces) == text

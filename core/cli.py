@@ -1,9 +1,14 @@
-"""CLI: python -m core translate <url> --to <lang>"""
+"""CLI: python -m core translate <url> --to <lang>
+
+Works for reels, image posts and carousels (D-025). Media is fetched into a
+temporary directory deleted on exit; text outputs go to --out.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import tempfile
 import time
@@ -26,36 +31,37 @@ def _translate(args: argparse.Namespace) -> int:
     # Media lives only inside this temporary directory and is deleted on exit.
     with tempfile.TemporaryDirectory(prefix="reel-") as tmp:
         try:
-            report = run_job(
+            result = run_job(
                 args.url,
                 args.to,
                 name=name,
                 work_dir=Path(tmp),
                 out_dir=out_dir,
-                source=providers.video_source(),
+                source=providers.media_source(),
                 stt=providers.speech_to_text(),
                 translator=providers.translator(),
+                ocr=providers.ocr_reader(),
                 render_video=not args.no_video,
             )
         except PipelineError as exc:
             print(f"ERROR [{type(exc).__name__}]: {exc}", file=sys.stderr)
             return 1
 
-    meta = {k: str(v) if isinstance(v, Path) else v for k, v in asdict(report).items()}
-    meta["url"] = args.url
+    meta = {"kind": result.kind, **asdict(result), "url": args.url}
     meta["elapsed_s"] = round(time.monotonic() - started, 1)
-    (out_dir / f"{name}.meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    print(json.dumps(meta, indent=2))
+    (out_dir / f"{name}.meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    print(json.dumps(meta, indent=2, ensure_ascii=False, default=str))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(prog="python -m core")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    t = sub.add_parser("translate", help="Translate a reel into bilingual subtitles")
-    t.add_argument("url", help="Reel URL")
+    t = sub.add_parser("translate", help="Translate a reel or image post")
+    t.add_argument("url", help="Post URL (reel, image or carousel)")
     t.add_argument("--to", required=True, choices=SUPPORTED_LANGS, help="Target language")
     t.add_argument("--out", default="out", help="Output directory (default: out)")
     t.add_argument("--no-video", action="store_true", help="Skip the subtitled video")

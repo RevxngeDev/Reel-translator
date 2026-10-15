@@ -33,7 +33,7 @@ _SCHEMA = {
     "additionalProperties": False,
 }
 
-_PROMPT = """Translate the subtitle segments of a short video from {src} to {tgt}.
+_PROMPT = """Translate the text segments of a short social-media post (video subtitles or text shown in images) from {src} to {tgt}.
 The audience is a language learner (A2-B2) who will read the original and the translation side by side.
 
 Rules:

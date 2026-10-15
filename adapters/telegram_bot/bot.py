@@ -33,7 +33,9 @@ class BotState:
         self.config = config
         self.db = db
         self.queue: asyncio.Queue[int] = asyncio.Queue()
-        self.runner = make_runner(providers.video_source(), providers.speech_to_text(), providers.translator())
+        self.runner = make_runner(
+            providers.media_source(), providers.speech_to_text(), providers.translator(), providers.ocr_reader()
+        )
         self.worker: asyncio.Task | None = None
 
 
