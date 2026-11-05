@@ -15,11 +15,13 @@ from core.source.base import Media
 
 
 class GalleryDlSource:
-    def __init__(self, cookies_file: Path | None = None, cookies_browser: str | None = None) -> None:
+    def __init__(self, cookies_file: Path | None = None, cookies_browser: str | None = None,
+                 proxy: str | None = None) -> None:
         if cookies_file and cookies_browser:
             raise ValueError("Use either cookies_file or cookies_browser, not both")
         self._cookies_file = cookies_file
         self._cookies_browser = cookies_browser
+        self._proxy = proxy
 
     def command(self, url: str, out_dir: Path) -> list[str]:
         cmd = [
@@ -33,6 +35,8 @@ class GalleryDlSource:
             cmd += ["--cookies", str(self._cookies_file)]
         if self._cookies_browser:
             cmd += ["--cookies-from-browser", self._cookies_browser]
+        if self._proxy:
+            cmd += ["--proxy", self._proxy]
         return cmd + [url]
 
     def fetch(self, url: str, out_dir: Path) -> Media:

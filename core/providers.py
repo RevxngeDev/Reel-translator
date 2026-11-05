@@ -32,13 +32,15 @@ def groq_client() -> groq.Groq:
 
 def media_source() -> ChainSource:
     """gallery-dl first (handles image posts), yt-dlp as fallback (D-025). Both use
-    the same cookies of the secondary account (D-013)."""
+    the same cookies of the secondary account (D-013) and the same optional proxy
+    (D-028: Instagram does not resolve directly on the dev network)."""
     cookies_file = os.environ.get("YTDLP_COOKIES_FILE") or None
-    cookies = {
+    options = {
         "cookies_file": Path(cookies_file) if cookies_file else None,
         "cookies_browser": os.environ.get("YTDLP_COOKIES_BROWSER") or None,
+        "proxy": os.environ.get("FETCH_PROXY") or None,
     }
-    return ChainSource([GalleryDlSource(**cookies), YtDlpSource(**cookies)])
+    return ChainSource([GalleryDlSource(**options), YtDlpSource(**options)])
 
 
 def ocr_reader() -> GroqVisionReader:

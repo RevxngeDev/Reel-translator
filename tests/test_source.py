@@ -69,3 +69,11 @@ def test_chain_falls_back_in_separate_dirs(tmp_path):
 def test_chain_reports_all_failures(tmp_path):
     with pytest.raises(FetchError, match="All sources failed"):
         ChainSource([_Stub(), _Stub()]).fetch("u", tmp_path)
+
+
+def test_proxy_is_passed_to_both_sources(tmp_path):
+    cmd = GalleryDlSource(proxy="http://127.0.0.1:10809").command("https://x/p/1", tmp_path)
+    assert cmd[cmd.index("--proxy") + 1] == "http://127.0.0.1:10809" and cmd[-1] == "https://x/p/1"
+    assert "--proxy" not in GalleryDlSource().command("u", tmp_path)
+    assert YtDlpSource(proxy="http://127.0.0.1:10809").options(tmp_path)["proxy"] == "http://127.0.0.1:10809"
+    assert "proxy" not in YtDlpSource().options(tmp_path)
